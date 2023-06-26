@@ -1,7 +1,11 @@
 ### ИМЯ ФАЙЛА ###
 name = 'EM_1506'
 
+import re
+import csv
 import glob
+import pandas as pd
+from typing import Text
 from chardet.universaldetector import UniversalDetector
 
 detector = UniversalDetector()
@@ -12,10 +16,7 @@ for filename in glob.glob(name + '.CSV'):
         if detector.done: break
     detector.close()
 f_encode = detector.result
-from typing import Text
-import pandas as pd
-import csv
-import re
+
 writer = pd.ExcelWriter(name + '.xlsx', engine='xlsxwriter')
 l_exp, num, value, exp, name_p = [], [], [], [], []
 with open(name + '.CSV', 'r', encoding=f_encode['encoding']) as cf:
@@ -39,11 +40,13 @@ with open(name + '.CSV', 'r', encoding=f_encode['encoding']) as cf:
             except:
               l_exp.append('???')
           tx = cf.readline()
+
 d = {
 "Number": pd.Series(num),
 "Name" : pd.Series(name_p),
 "Value": pd.Series(value),
 "Full expect" : pd.Series(l_exp),
 }
+
 pd.DataFrame(d).to_excel(writer, 'Sheet1')
 writer.save()
