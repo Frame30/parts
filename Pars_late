@@ -1,0 +1,49 @@
+### ИМЯ ФАЙЛА ###
+name = 'EM_1506'
+
+import glob
+from chardet.universaldetector import UniversalDetector
+
+detector = UniversalDetector()
+for filename in glob.glob(name + '.CSV'):
+    detector.reset()
+    for line in open(filename, 'rb'):
+        detector.feed(line)
+        if detector.done: break
+    detector.close()
+f_encode = detector.result
+from typing import Text
+import pandas as pd
+import csv
+import re
+writer = pd.ExcelWriter(name + '.xlsx', engine='xlsxwriter')
+l_exp, num, value, exp, name_p = [], [], [], [], []
+with open(name + '.CSV', 'r', encoding=f_encode['encoding']) as cf:
+    fl = True
+    while fl:
+      tx = cf.readline()
+      if not tx:
+        fl = False
+      data_search = re.search('\d{2}\.\d{2}\.\d{4}\.', tx)
+      if data_search: data_s = tx[data_search.span()[0]:data_search.span()[1]-1] + '\n'
+      if tx in ['Невыходы/Поломки:  \n', 'Опоздания:  \n']:
+        val = tx
+        tx = cf.readline()
+        while tx not in ['Замены/Резервы:\n', 'Экспедиторы\n']:
+          if not tx == ' \n' and not tx == '\n' and re.search('[А-Я][а-я]{2,10}\s+(?:\([А-Я]*\))', tx):
+            value.append(val)
+            num.append(data_s)
+            name_p.append(re.search('[А-Я][а-я]{2,10}\s+(?:\([А-Я]*\))', tx).group())
+            try:
+              l_exp.append(re.search('(?:\s–.+)', tx).group()[2:])
+            except:
+              l_exp.append('???')
+          tx = cf.readline()
+d = {
+"Number": pd.Series(num),
+"Name" : pd.Series(name_p),
+"Value": pd.Series(value),
+"Full expect" : pd.Series(l_exp),
+}
+pd.DataFrame(d).to_excel(writer, 'Sheet1')
+writer.save()
