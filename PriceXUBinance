@@ -1,0 +1,37 @@
+import re
+import time
+import requests
+from bs4 import BeautifulSoup
+
+class XrpUsdtPrice:
+    def __init__(self):
+        self.url = 'https://www.binance.com/en/trade/XRP_USDT'
+        self.html = self.get_html()
+
+    def get_html(self):
+        try:
+            result = requests.get(self.url)
+            result.raise_for_status()
+            self.html = result.text
+            return self.html
+        except(requests.RequestException, ValueError):
+            print('Server error')
+            return False
+
+    def get_list(self):
+        soup = BeautifulSoup(self.get_html(), 'html.parser')
+        title_list = soup.find('title', '')
+        return title_list
+
+def GetPrice(listing):
+    return float(re.findall("\d.\d{4}", str(listing.get_list()))[0])
+
+Pair = XrpUsdtPrice()
+PRICE_BUF = GetPrice(Pair)
+
+while True:
+    price = GetPrice(Pair)
+    if price > PRICE_BUF:
+        PRICE_BUF = GetPrice(Pair)
+    if PRICE_BUF - price >= PRICE_BUF / 100:
+        print("Price down 1% and more!")
