@@ -1,0 +1,294 @@
+import re, time, calendar
+import telebot
+from telebot import types
+import sqlite3 as sl
+import threading, schedule
+from ast import literal_eval
+from logging import exception
+def find_post(post_id):
+  with sl.connect('/content/test_base.db') as con:
+  # 'id, 'caption', 'message_id', 'from_user', 'reply_to_message_id', 'chat', 'content_type'
+    buff, rows = {}, ['id', 'caption', 'reply_to_message_id', 'chat']
+    for i in con.execute(f"select id, caption, reply_to_message_id, chat from posts where id = {post_id}"):
+      for j in range(len(rows)):
+        try:
+          buff[rows[j]] = (literal_eval(i[j]))
+        except:
+          buff[rows[j]] = (i[j])
+    return buff
+
+def serchin():
+  with sl.connect('/content/test_base.db') as con:
+    buff=''
+    for i in con.execute('select id, caption from posts'):
+      buff+='№'+str(i[0])+' - '+str(i[1])+'\n'
+    return buff
+
+def view_small_caption(message):
+  fstp = str(message.reply_to_message.text)[:50]
+  sstp = str(message.reply_to_message.caption)[:50]
+  if fstp or sstp:
+    return((fstp[:fstp.find('\n')], sstp[:sstp.find('\n')])[fstp < sstp]+'...')
+
+def Job():
+  # 'id', 'task', 'time_to_do', 'user_id', 'chat_id', 'status'
+  cur_time = time.strftime('%d.%m.%Y %H:%M', time.localtime(time.time()+10800))[-5:]
+  with sl.connect('/content/test_base.db') as con:
+    i = con.execute(f"select task, user_id, chat_id from post_plan where time_to_do='{cur_time}' and status = 'created'").fetchall()
+    if i:
+      for j in i:
+        if eval(j[0]):
+          con.execute(f'update post_plan set status = "done" where task = "{j[0]}" and time_to_do = "{cur_time}"')
+
+#telebot.apihelper.ENABLE_MIDDLEWARE = True
+token='0000000000:aaaaaaaaaaaaaaaaaaaa'
+bot=telebot.TeleBot(token)
+buf = ''
+post_n = {}
+pab_n = {}
+tim_e = {}
+tim__e = {}
+
+@bot.message_handler(commands=['start'])
+def send_some_thing(message):
+    print(message.text)
+
+@bot.message_handler(commands=['dl'])
+def down_load(message):
+    try:
+      save_dir = message.text.replace('/dl', 'files')
+      file_info = bot.get_file(message.reply_to_message.document.file_id)
+      downloaded_file = bot.download_file(file_info.file_path)
+      src = message.reply_to_message.document.file_name
+      with open('/content/' + save_dir + "/" + src, 'wb') as new_file:
+          new_file.write(downloaded_file)
+      bot.send_message(message.chat.id, "[*] Сохранён:\nНазвание - {}\nВ локальную директорию - {}".format(str(src), str(save_dir)))
+    except Exception as ex:
+        bot.send_message(message.chat.id, "[!] error - {}".format(str(ex)))
+
+@bot.message_handler(commands=['S'])
+def save_post(message):
+  try:
+  # 'id, 'caption', 'message_id', 'from_user', 'reply_to_message_id', 'chat', 'content_type'
+    with sl.connect('/content/test_base.db') as con:
+      cur = con.cursor()
+      data = [(view_small_caption(message), message.message_id, str(message.from_user), message.reply_to_message.id, str(message.chat), message.content_type)]
+      cur.executemany(f"INSERT INTO posts(caption, message_id, from_user, reply_to_message_id, chat, content_type) VALUES(?, ?, ?, ?, ?, ?)", data)
+      num_of_post = tuple(*con.execute(f"select id from posts where message_id={message.message_id}"))[0]
+      bot.send_message(message.chat.id, text=f"Сохранён как пост №{num_of_post}")
+      con.commit()
+  except Exception as e:
+    bot.send_message(message.chat.id, text='Что-то пошло не так :(')
+    print(e)
+
+@bot.message_handler(commands=['showallbut'])
+def button_message(message):
+    markup=types.ReplyKeyboardMarkup(resize_keyboard=True)
+    item1=types.KeyboardButton("Создать пост")
+    item2=types.KeyboardButton("Контент-план")
+    item3=types.KeyboardButton("Показать Базу")
+    item4=types.KeyboardButton("Настройки")
+    markup.add(item1, item2, item3, item4)
+    bot.send_message(message.chat.id,'Команды теперь будут всегда в строке ввода',reply_markup=markup)
+
+@bot.message_handler(commands=['show_posts'])
+def start(message):
+    markup = types.InlineKeyboardMarkup()
+    with sl.connect('/content/test_base.db') as con:
+      func=[]
+      for j, i in enumerate(con.execute('select id, caption from posts')):
+        func.append(types.InlineKeyboardButton(str(i[1]), callback_data='postsInTheDB'+str(i[0])))
+      markup.add(*func)
+      bot.delete_message(message.chat.id, message.id)
+      bot.send_message(message.chat.id, "Все посты в базе", reply_markup=markup)
+
+@bot.message_handler(commands=['stat'])
+def create_poll(message):
+    bot.send_message(message.chat.id, "English Article Test")
+    answer_options = ["a", "an", "the", "-"]
+
+    bot.send_poll(
+        chat_id=message.chat.id,
+        question="We are going to '' park.",
+        options=answer_options,
+        type="quiz",
+        correct_option_id=2,
+        is_anonymous=False,
+    )
+
+@bot.poll_answer_handler()
+def handle_poll(poll):
+    # This handler can be used to log User answers and to send next poll
+    pass
+
+def time_set(call):
+  if str(call.data) == 'confirmИзменить время':
+    bot.delete_message(call.message.chat.id, call.message.id)
+    markup, h = types.InlineKeyboardMarkup(row_width=8), []
+    for i in range(24):
+      j = str((0, '')[i>9])+str(i)
+      h.append(types.InlineKeyboardButton(j, callback_data=j+"tim_e"))
+    markup.add(*h)
+    bot.send_message(call.message.chat.id, "Часы:\n", reply_markup=markup)
+    del h
+
+@bot.callback_query_handler(func=lambda call: True)
+def test_callback(call):
+  global post_n
+  global pab_n
+  global tim_e
+  global tim__e
+  if str(call.data)=='timeToPostСейчас':
+    item = find_post(post_n[call.message.chat.id])
+    bot.delete_message(call.message.chat.id, call.message.id)
+    bot.copy_message(call.message.chat.id, item['chat']['id'], item['reply_to_message_id'])
+    del post_n[call.message.chat.id]
+    del pab_n[call.message.chat.id]
+  elif str(call.data)=='timeToPostЗадать время':
+    #bot.delete_message(call.message.chat.id, call.message.id)
+    markup, h = types.InlineKeyboardMarkup(row_width=8), []
+    for i in range(24):
+      j = str((0, '')[i>9])+str(i)
+      h.append(types.InlineKeyboardButton(j, callback_data=j+"tim_e"))
+    markup.add(*h)
+    bot.edit_message_text("Часы:\n", call.message.chat.id, call.message.id, reply_markup=markup)
+    del h
+  elif str(call.data)[-5:]=='tim_e':
+    tim_e[call.message.chat.id] = str(call.data)[:-5]
+    #bot.delete_message(call.message.chat.id, call.message.id)
+    markup, m = types.InlineKeyboardMarkup(row_width=8), []
+    for i in range(60):
+      j = str((0, '')[i>9])+str(i)
+      m.append(types.InlineKeyboardButton(j, callback_data=j+"tim-e"))
+    markup.add(*m)
+    bot.edit_message_text("Минуты:\n", call.message.chat.id, call.message.id, reply_markup=markup)
+    del m
+  elif str(call.data)[-5:]=='tim-e':
+    tim__e[call.message.chat.id] = str(call.data)[:-5]
+    #bot.delete_message(call.message.chat.id, call.message.id)
+    markup, ch = types.InlineKeyboardMarkup(row_width=2), []
+    for i in ['Нет', 'Да', 'Изменить время']:
+      ch.append(types.InlineKeyboardButton(str(i), callback_data='confirm'+i))
+    markup.add(*ch)
+    bot.edit_message_text(f"Пост №'{post_n[call.message.chat.id]}' переслать в '{pab_n[call.message.chat.id]}' в {tim_e[call.message.chat.id]}:{tim__e[call.message.chat.id]}, верно?", call.message.chat.id, call.message.id, reply_markup=markup)
+  elif str(call.data)[:7] == 'confirm':
+    time_set(call)
+    if str(call.data)[7:] == 'Да':
+      with sl.connect('/content/test_base.db') as con:
+        # 'id', 'task', 'time_to_do', 'user_id', 'chat_id', 'status'
+        item = find_post(post_n[call.message.chat.id])
+        data = [(f"bot.copy_message('{pab_n[call.message.chat.id]}', {item['chat']['id']}, {item['reply_to_message_id']})", f"{tim_e[call.message.chat.id]}:{tim__e[call.message.chat.id]}", f"{call.message.chat.id}", f"{call.message.chat.id}", 'created')]
+        con.executemany(f"insert into post_plan(task, time_to_do, user_id, chat_id, status) values(?, ?, ?, ?, ?)", data)
+        #bot.copy_message(pab_n[message.chat.id], item['chat']['id'], item['reply_to_message_id'])
+      bot.edit_message_text(f"Пост №'{post_n[call.message.chat.id]}' запланирован на {tim_e[call.message.chat.id]}:{tim__e[call.message.chat.id]} в {pab_n[call.message.chat.id]}", call.message.chat.id, call.message.id)
+      del post_n[call.message.chat.id]
+      del pab_n[call.message.chat.id]
+    else:
+      bot.delete_message(call.message.chat.id, call.message.id)
+  elif str(call.data)[12:] in serchin():
+    item = find_post(str(call.data)[12:])
+    bot.delete_message(call.message.chat.id, call.message.id)
+    bot.copy_message(call.from_user.id, item['chat']['id'], item['reply_to_message_id'])
+
+@bot.message_handler(content_types='text', chat_types=['private'])
+def message_reply(message):
+    if message.text=="Тест":
+        item = find_post('*')
+        print(item)
+        bot.forward_message(IdOfPusher, item['chat']['id'], item['reply_to_message_id'])
+    elif message.text=="Контент-план":
+        bot.delete_message(message.chat.id, message.id)
+        bot.send_message(message.chat.id, 'Пост №...?')
+    elif message.text=="Показать Базу":
+        bot.send_message(message.chat.id, serchin())
+    try:
+      if message.reply_to_message.text == 'Пост №...?':
+          post_n[message.chat.id] = int(message.text)
+          #bot.delete_message(message.reply_to_message.chat.id, message.reply_to_message.id)
+          bot.delete_message(message.chat.id, message.id)
+          bot.edit_message_text("Куда?...", message.reply_to_message.chat.id, message.reply_to_message.id)
+      elif message.reply_to_message.text == "Куда?...":
+          if str(message.text) =='Сюда':
+            pab_n[message.chat.id] = message.chat.id
+          else:
+            pab_n[message.chat.id] = str(message.text)
+          #bot.delete_message(message.reply_to_message.chat.id, message.reply_to_message.id)
+          bot.delete_message(message.chat.id, message.id)
+          markup, h = types.InlineKeyboardMarkup(row_width=8), []
+          for i in ['Сейчас', 'Задать время']:
+            h.append(types.InlineKeyboardButton(str(i), callback_data='timeToPost'+i))
+          markup.add(*h)
+          bot.edit_message_text("Когда?...", message.reply_to_message.chat.id, message.reply_to_message.id, reply_markup=markup)
+      elif message.reply_to_message.text == f"Пост №'{post_n[message.chat.id]}' переслать в '{pab_n[message.chat.id]}' в {tim_e}:{tim__e}, верно?" and message.text == "Да":
+          with sl.connect('/content/test_base.db') as con:
+            # 'id', 'task', 'time_to_do', 'user_id', 'chat_id', 'status'
+            item = find_post(post_n[message.chat.id])
+            data = [(f"bot.copy_message('{pab_n[message.chat.id]}', {item['chat']['id']}, {item['reply_to_message_id']})", f"{tim_e}:{tim__e}", f"{pab_n[message.chat.id]}", f"{message.chat.id}", 'created')]
+            con.executemany(f"insert into post_plan(task, time_to_do, user_id, chat_id, status) values(?, ?, ?, ?, ?)", data)
+          #bot.copy_message(pab_n[message.chat.id], item['chat']['id'], item['reply_to_message_id'])
+          del post_n[message.chat.id]
+          del pab_n[message.chat.id]
+    except Exception as e:
+      print('Exception from "message_reply()": ', e)
+
+def CONPLNBD():
+  with sl.connect('/content/test_base.db') as con:
+    try:
+      con.execute("""
+      CREATE TABLE post_plan(
+      plan_id INTEGER PRIMARY KEY,
+      task TEXT,
+      time_to_do INTEGER,
+      user_id INTEGER,
+      chat_id INTEGER,
+      status INTEGER
+      )
+      """)
+      print('created')
+    #count = [i for i in con.execute('select count(id) from posts')][0][0]
+    except:
+      buff, rows = {}, ['id', 'task', 'time_to_do', 'user_id', 'chat_id', 'status']
+      for i in con.execute('select * from post_plan'):
+          for j in range(len(rows)):
+            try:
+              buff[rows[j]] = (literal_eval(i[j]))
+            except:
+              buff[rows[j]] = (i[j])
+          print(buff)
+      print('show_bd')
+
+def POSTBD():
+  with sl.connect('/content/test_base.db') as con:
+    try:
+      con.execute("""
+      CREATE TABLE posts(
+      id INTEGER PRIMARY KEY,
+      caption,
+      message_id,
+      from_user,
+      reply_to_message_id,
+      chat,
+      content_type
+  )
+      """)
+      print('created')
+    #count = [i for i in con.execute('select count(id) from posts')][0][0]
+    except:
+      buff, rows = {}, ['id', 'caption', 'message_id', 'from_user', 'reply_to_message_id', 'chat', 'content_type']
+      for i in con.execute('select * from posts'):
+          for j in range(len(rows)):
+            try:
+              buff[rows[j]] = (literal_eval(i[j]))
+            except:
+              buff[rows[j]] = (i[j])
+          print(buff)
+      print('show_bd')
+
+if __name__ == '__main__':
+    POSTBD()
+    CONPLNBD()
+    THBT = threading.Thread(target=bot.infinity_polling, name='bot_infinity_polling', daemon=False)
+    THBT.start()
+    while True:
+      Job()
+      time.sleep(10)
