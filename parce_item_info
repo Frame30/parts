@@ -1,0 +1,69 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from bs4 import BeautifulSoup as bs
+import pandas as pd, time
+
+
+def test_basic_options(webs):
+    Data_f = {}
+    options = EdgeOptions()
+    #options.add_argument("--headless=new")
+    driver = webdriver.Edge()#options=options)
+
+    # Получаем HTML
+    driver.get(webs)
+    time.sleep(5)
+
+    # Закрываем всплывающее окно, если оно появилось
+    try:
+      driver.find_elements(By.CLASS_NAME , "shop-select-dialog__close")[1].click()
+    except:
+      print('not_sh_sel_dial')
+
+    # Получаем карточки товаров в выбранной категории
+    allNews = driver.find_elements(By.XPATH, "//a[@data-qa='product-card-name']")
+
+    # Поочередно открываем ссылки из карточек товаров и парсим нужные данные
+    for i in allNews:
+        href_p = i.get_attribute('href')
+        driver.get(href_p)
+        driver.find_elements(By.CLASS_NAME , "shop-select-dialog__close")[1].click()
+        article_p = driver.find_element(By.CLASS_NAME, "product-page-content__article").text
+        name_p = driver.find_element(By.XPATH, "//meta[@itemprop='name']").get_attribute('content')
+        try:
+            reg_price_p = driver.find_elements(By.CLASS_NAME, "product-price__sum-rubles")[0].text
+            promo_price_p = driver.find_elements(By.CLASS_NAME, "product-price__sum-rubles")[1].text
+        except:
+            reg_price_p = driver.find_element(By.CLASS_NAME, "product-price__sum-rubles").text
+            promo_price_p = 'null'
+        brand_p = driver.find_element(By.XPATH, "//a[@class='product-attributes__list-item-link reset-link active-blue-text']").text
+        print(href_p, article_p, name_p, reg_price_p, promo_price_p, brand_p)
+        Data_f = {'id товара':[article_p],
+                  'Наимонование':[name_p],
+                  'Ссылка на товар':[href_p],
+                  'Регулярная цена':[reg_price_p],
+                  'Промо цена':[promo_price_p],
+                  'Бренд':[brand_p]}
+    print(len(allNews))
+
+    # Создаём объект DataFrame и выгружаем в файл
+    with open('text_data.txt', 'w') as tx:
+      df = pd.DataFrame(Data_f)
+      print(df, file=tx)
+    print([i.text for i in allNews])
+    q = input()
+    driver.quit()
+
+def test_headless():
+    options = EdgeOptions()
+    options.add_argument("--headless=new")
+    driver = webdriver.Edge(options=options)
+    driver.get('http://selenium.dev')
+    time.sleep(5)
+    driver.quit()
+
+test_basic_options('https://online.metro-cc.ru/category/bezalkogolnye-napitki/soki-morsy-nektary')
